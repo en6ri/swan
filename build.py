@@ -38,7 +38,7 @@ WEEKDAYS_SHORT = ["pon.", "wt.", "śr.", "czw.", "pt.", "sob.", "niedz."]
 
 CONFIDENCE = ("confirmed", "single-source", "unconfirmed")
 THRESHOLDS = {"all": "Wszystko", "important": "Ważne", "breakthrough": "Przełomy"}
-COVERS = ("orbit", "wheel", "layers", "grid", "bounce", "globe")
+COVERS = ("orbit", "wheel", "layers", "grid", "bounce", "globe", "track", "hemicycle")
 
 LOGO = (
     '<svg class="logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
@@ -303,6 +303,51 @@ def cover_shapes(kind: str, seed: str):
         out.append(f'<circle class="ring" cx="{_f(p1[0])}" cy="{_f(p1[1])}" r="8"/>')
         out.append(f'<circle class="fill" cx="{_f(p2[0])}" cy="{_f(p2[1])}" r="9"/>')
         thumb = (cx - 170, cy - 170, 340, 340)
+    elif kind == "track":
+        base = [(120, 300), (105, 190), (165, 110), (285, 118), (335, 175), (420, 108),
+                (530, 118), (550, 222), (472, 250), (420, 305), (300, 322), (200, 332)]
+        pts = [(x + r.randint(-14, 14), y + r.randint(-12, 12)) for x, y in base]
+        mx = sum(x for x, _ in pts) / len(pts)
+        my = sum(y for _, y in pts) / len(pts)
+
+        def loop(points):
+            n = len(points)
+            d = f"M{_f(points[0][0])} {_f(points[0][1])}"
+            for i in range(n):
+                p0, p1, p2, p3 = points[i - 1], points[i], points[(i + 1) % n], points[(i + 2) % n]
+                c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+                c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+                d += f"C{_f(c1[0])} {_f(c1[1])} {_f(c2[0])} {_f(c2[1])} {_f(p2[0])} {_f(p2[1])}"
+            return d + "Z"
+
+        inner = [(mx + (x - mx) * 0.84, my + (y - my) * 0.84) for x, y in pts]
+        out.append(f'<path d="{loop(pts)}"/>')
+        out.append(f'<path d="{loop(inner)}"/>')
+        s0, s1 = pts[0], inner[0]
+        out.append(f'<path class="bold" d="M{_f(s0[0])} {_f(s0[1])}L{_f(s1[0])} {_f(s1[1])}"/>')
+        k = r.randrange(2, len(pts) - 2)
+        car = ((pts[k][0] + inner[k][0]) / 2, (pts[k][1] + inner[k][1]) / 2)
+        out.append(f'<circle class="fill" cx="{_f(car[0])}" cy="{_f(car[1])}" r="9"/>')
+        j = (k + 1) % len(pts)
+        rival = ((pts[j][0] + inner[j][0]) / 2, (pts[j][1] + inner[j][1]) / 2)
+        out.append(f'<circle class="ring" cx="{_f(rival[0])}" cy="{_f(rival[1])}" r="8"/>')
+        thumb = (car[0] - 140, car[1] - 140, 280, 280)
+    elif kind == "hemicycle":
+        cx, cy = 320, 345
+        out.append(f'<path d="M40 {cy}H600"/>')
+        seats = []
+        for rr in (110, 140, 170, 200, 230, 260, 290):
+            n = max(6, round(math.pi * rr / 27))
+            for i in range(n):
+                a = math.pi + math.pi * (i + 0.5) / n
+                seats.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+        pick = r.randrange(len(seats))
+        for i, (x, y) in enumerate(seats):
+            cls = ' class="fill"' if i == pick else ""
+            out.append(f'<circle{cls} cx="{_f(x)}" cy="{_f(y)}" r="6"/>')
+        out.append(f'<path class="bold" d="M{cx - 34} {cy - 22}H{cx + 34}"/>')
+        fx, fy = seats[pick]
+        thumb = (fx - 110, fy - 110, 220, 220)
     return "".join(out), thumb
 
 
@@ -622,8 +667,9 @@ class Site:
                     '<p class="hero-text">Wróć po najbliższym sprawdzeniu źródeł.</p></section>')
             return self.layout(title=self.c["title"], body=body, path="/", current="home", home=True)
 
-        day = self.posts[0]["date"].date()
-        edition = sorted([p for p in self.posts if p["date"].date() == day],
+        live = [p for p in self.posts if p["category"].get("active", True)] or self.posts
+        day = live[0]["date"].date()
+        edition = sorted([p for p in live if p["date"].date() == day],
                          key=lambda p: (-(p["relevance"] or 0), p["date"]))
         n = len(edition)
         minutes = sum(p["minutes"] for p in edition)
@@ -716,8 +762,14 @@ class Site:
 
     def render_topics(self) -> str:
         rows = []
-        for cat in self.topics["categories"]:
+        cats = self.topics["categories"]
+        ordered = [c for c in cats if c.get("active", True)] + [c for c in cats if not c.get("active", True)]
+        for idx, cat in enumerate(ordered):
+            if not cat.get("active", True) and (idx == 0 or ordered[idx - 1].get("active", True)):
+                rows.append('<h2 class="topics-sub">Uśpione</h2>')
             chips = "".join(f'<li>{esc(s)}</li>' for s in cat.get("subtopics", []))
+            if cat.get("sources"):
+                chips += "".join(f'<li class="chip-src">{esc(s)}</li>' for s in cat["sources"])
             current = cat.get("threshold", "all")
             seg = "".join(f'<span{" class=on" if key == current else ""}>{label}</span>'
                           for key, label in THRESHOLDS.items())
