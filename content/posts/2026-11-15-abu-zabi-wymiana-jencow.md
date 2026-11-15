@@ -18,6 +18,6 @@ sources:
 ---
 Strony różnie oceniają spotkanie. Doradca Kremla Jurij Uszakow nazwał rozmowy merytorycznymi i dość użytecznymi, a wysłannicy USA trudnymi, ale produktywnymi. Wysłannik USA Jared Kushner zapowiadał ustalenie liczby jeńców do wymiany w kolejnych dniach.
 
-Otwarta pozostaje rola Europy. Prezydent Wołodymyr Ziełenski domagał się, by Europa była reprezentowana na każdym etapie rozmów. Według relacji z Abu Zabi Miedinski mówił, że Moskwa nie sprzeciwia się udziałowi UE w kolejnych rundach.
+Otwarta pozostaje rola Europy. Prezydent Wołodymyr Zełenski domagał się, by Europa była reprezentowana na każdym etapie rozmów. Według relacji z Abu Zabi Miedinski mówił, że Moskwa nie sprzeciwia się udziałowi UE w kolejnych rundach.
 
 Wątek polski: 13 listopada, po szczycie w Dublinie, premier Donald Tusk poinformował, że Polska wraz z pozostałymi państwami grupy E5 (Wielka Brytania, Francja, Niemcy, Włochy) i instytucjami UE uzyskała poparcie, by reprezentować Europę w rozmowach pokojowych. Zewnętrznym reprezentantem UE ma być przewodniczący Rady Europejskiej António Costa.
