@@ -4,7 +4,7 @@
 
 ## Jak to działa
 
-- `content/topics.json`: kategorie (nawigacja, okładki, podtematy, próg ważności, aktywność) i godziny sprawdzania źródeł.
+- `content/topics.json`: kategorie (nawigacja, okładki, podtematy, ulubione źródła `sources`, próg ważności, aktywność) i godziny sprawdzania źródeł. Kategoria z `"active": false` znika z nawigacji i strony głównej, ale jej wpisy zostają w archiwum.
 - `content/status.json`: stan ostatniego przeglądu źródeł (godzina, liczba publikacji i źródeł). Pokazywany w nagłówku strony głównej.
 - `content/posts/*.md`: wpisy. Strona główna pokazuje najnowsze wydanie (wpisy z ostatniego dnia), posortowane według trafności.
 - Każdy push na `main` uruchamia `.github/workflows/deploy.yml`, który buduje i publikuje stronę. Błąd w pliku zatrzymuje publikację, a na stronie zostaje poprzednia wersja.
@@ -43,7 +43,7 @@ Tekst w Markdownie, własnymi słowami, wyłącznie na podstawie źródeł.
 | `confidence` | nie | `confirmed`, `single-source`, `unconfirmed`; jedno źródło zawsze daje etykietę „Niepotwierdzone” |
 | `draft` | nie | `true` ukrywa wpis |
 
-Okładki (`cover` w `topics.json`) rysuje kod: `orbit`, `wheel`, `layers`, `grid`, `bounce`, `globe`. Szczegóły zależą od adresu wpisu, więc każda okładka jest inna.
+Okładki (`cover` w `topics.json`) rysuje kod: `orbit`, `wheel`, `layers`, `grid`, `bounce`, `globe`, `track`, `hemicycle`. Szczegóły zależą od adresu wpisu, więc każda okładka jest inna.
 
 ## Podgląd lokalny
 

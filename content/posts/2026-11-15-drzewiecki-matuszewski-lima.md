@@ -1,10 +1,10 @@
 ---
 title: Drzewiecki i Matuszewski przegrali finał debla w Limie po super tie-breaku
 date: 2026-11-15 12:45
-category: sport
+category: tenis
 lead: Polska para prowadziła po pierwszym secie, ale tytuł w challengerze w Peru zdobyli Argentyńczycy grający z dziką kartą.
 relevance: 42
-why: Pasuje do tematu „tenis”. Jedyny polski finał tygodnia, ale w turnieju niższej rangi.
+why: Pasuje do tematu „Polacy”. Jedyny polski finał tygodnia, ale w turnieju niższej rangi.
 confidence: single-source
 summary:
   - Karol Drzewiecki i Piotr Matuszewski, rozstawieni z numerem 2, dotarli do finału debla challengera na kortach ziemnych w Limie.

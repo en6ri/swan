@@ -20,6 +20,15 @@ SWAN to jedna strona zamiast dwudziestu kart w przeglądarce. AI przegląda inte
 - **Zebrane z N źródeł**: z ilu publikacji powstał wpis. Pełna lista jest przy każdym wpisie, z rolą każdego źródła.
 - **Niepotwierdzone**: informacja ma tylko jedno źródło albo opiera się na nieoficjalnych doniesieniach.
 
+## Polityka
+
+W działach politycznych obowiązują dodatkowe zasady:
+
+- Tylko wydarzenia z konsekwencjami: ustawy, decyzje rządu i prezydenta, głosowania, wyroki, wybory. Bez codziennych przepychanek.
+- Fakty z agencji i źródeł pierwotnych (strony Sejmu, rządu, prezydenta, sądów, PKW), sprawdzane w mediach z różnych stron sporu.
+- Każda ocena jest przypisana konkretnej osobie lub partii. Stanowiska rządu, opozycji i prezydenta stoją obok siebie, w podobnej objętości.
+- Bez przymiotników oceniających i bez zgadywania intencji. Gdy źródła się różnią, wpis mówi to wprost.
+
 ## Zasady
 
 Wpis powstaje wyłącznie z treści źródeł i zawsze do nich linkuje. SWAN streszcza własnymi słowami i odsyła do oryginału, nie kopiuje artykułów ani zdjęć. AI może się pomylić, dlatego w razie rozbieżności rację ma źródło.

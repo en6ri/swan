@@ -1,10 +1,10 @@
 ---
 title: WTA Finals. Switolina i Andriejewa zagrają w finale, to rewanż z fazy grupowej
 date: 2026-11-15 12:45
-category: sport
+category: tenis
 lead: W finale turnieju kończącego sezon zmierzą się najstarsza finalistka od 2017 roku i najmłodsza od 2004. Polki w tym roku w turnieju nie grały.
 relevance: 68
-why: Pasuje do tematu „tenis”. Finał najważniejszego turnieju kończącego sezon WTA, choć bez udziału Polek.
+why: Pasuje do tematu „WTA”. Finał najważniejszego turnieju kończącego sezon WTA, choć bez udziału Polek.
 confidence: confirmed
 summary:
   - Elina Switolina pokonała w półfinale Lindę Noskovą 6:2, 6:1 w 65 minut.

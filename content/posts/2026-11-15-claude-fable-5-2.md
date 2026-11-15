@@ -3,7 +3,7 @@ title: Anthropic wypuszcza Claude Fable 5.2. Mythos 5.2 tylko dla zweryfikowanyc
 date: 2026-11-15 12:45
 category: ai
 lead: Nowy flagowy model Anthropic jest dostępny od razu we wszystkich kanałach. Mocniejszy Mythos 5.2 trafia tylko do uczestników programów weryfikacji.
-relevance: 90
+relevance: 86
 why: Pasuje do tematu „nowe modele”. Flagowy model dostępny od pierwszego dnia, z cenami i wynikami podanymi przez producenta.
 confidence: confirmed
 summary:
