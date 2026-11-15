@@ -2,10 +2,11 @@
 """SWAN: generator statycznej strony magazynu (bez zależności, Python 3.9+).
 
 Użycie:
-    python3 build.py                                          # ustawienia z config.json
-    python3 build.py --base "" --site-url http://localhost:8000   # podgląd lokalny
+    python3 build.py                                              # ustawienia z config.json
+    python3 build.py --base "" --site-url http://localhost:8765   # podgląd lokalny
 
-Wpisy leżą w content/posts/*.md, format opisuje README.md.
+Wpisy: content/posts/*.md, tematy: content/topics.json, stan wydania: content/status.json.
+Format opisuje README.md.
 """
 from __future__ import annotations
 
@@ -14,6 +15,8 @@ import datetime as dt
 import hashlib
 import html
 import json
+import math
+import random
 import re
 import shutil
 import sys
@@ -23,8 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 CONTENT = ROOT / "content"
 STATIC = ROOT / "static"
-HOME_EDITIONS = 8  # ile wydań (dni) pokazać na stronie głównej
-HOME_SHORTS = 20
+FONT_CSS = "https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.8/opsz.css"
 
 MONTHS = ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca",
           "sierpnia", "września", "października", "listopada", "grudnia"]
@@ -32,24 +34,21 @@ MONTHS_NOM = ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lip
               "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"]
 MONTHS_SHORT = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"]
 WEEKDAYS = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
+WEEKDAYS_SHORT = ["pon.", "wt.", "śr.", "czw.", "pt.", "sob.", "niedz."]
 
-FORMATS = {"article": "Artykuł", "thread": "Wątek", "short": "Krótko"}
-CONFIDENCE = {
-    "confirmed": ("Potwierdzone",
-                  "Potwierdzone w co najmniej dwóch niezależnych źródłach albo w źródle pierwotnym."),
-    "single-source": ("Jedno źródło",
-                      "Pochodzi z jednego wiarygodnego źródła, bez niezależnego potwierdzenia."),
-    "unconfirmed": ("Niepotwierdzone",
-                    "Przecieki, plotki albo doniesienia. Warto wiedzieć, ale traktuj z dystansem."),
-}
+CONFIDENCE = ("confirmed", "single-source", "unconfirmed")
+THRESHOLDS = {"all": "Wszystko", "important": "Ważne", "breakthrough": "Przełomy"}
+COVERS = ("orbit", "wheel", "layers", "grid", "bounce", "globe")
 
 LOGO = (
     '<svg class="logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
-    '<path class="logo-beak" d="M13.5 14.5 4 19.5l10.5-.5z"/>'
-    '<path class="logo-neck" d="M15 17c3-8 15-8 15 1 0 9-14 14-14 26" fill="none" stroke-width="5.5" stroke-linecap="round"/>'
+    '<path class="logo-neck" d="M15 17c3-8 15-8 15 1 0 9-14 14-14 26" fill="none" stroke-width="6" stroke-linecap="round"/>'
     '<path class="logo-body" d="M13 42c2 9 13 13 26 11 10-1.5 17-8 20-18-6 4-12 5-18 3-9-3-19 0-28 4z"/>'
     '</svg>'
 )
+SEARCH_ICON = ('<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" '
+               'stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/>'
+               '<path d="m20 20-3.5-3.5"/></svg>')
 
 
 class BuildError(Exception):
@@ -60,14 +59,6 @@ class BuildError(Exception):
 
 def esc(value) -> str:
     return html.escape(str(value), quote=True)
-
-
-_PL = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
-
-
-def slugify(text: str) -> str:
-    text = text.translate(_PL).lower()
-    return re.sub(r"[^a-z0-9]+", "-", text).strip("-") or "temat"
 
 
 def plural(n: int, one: str, few: str, many: str) -> str:
@@ -82,6 +73,10 @@ def date_long(d) -> str:
     return f"{d.day} {MONTHS[d.month - 1]} {d.year}"
 
 
+def date_day(d) -> str:
+    return f"{d.day} {MONTHS[d.month - 1]}"
+
+
 def date_short(d) -> str:
     return f"{d.day} {MONTHS_SHORT[d.month - 1]}"
 
@@ -90,11 +85,26 @@ def weekday(d) -> str:
     return WEEKDAYS[d.weekday()]
 
 
+def hhmm(d) -> str:
+    return d.strftime("%H:%M")
+
+
 def truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     cut = text[:limit].rsplit(" ", 1)[0]
     return cut.rstrip(",.;:–—-") + "…"
+
+
+def sources_phrase(n: int) -> str:
+    """'Zebrane z 5 źródeł' na kartach i w nagłówku wpisu."""
+    if n <= 1:
+        return "Jedno źródło"
+    return f"Zebrane z {n} źródeł"
+
+
+def sources_short(n: int) -> str:
+    return f"{n} {plural(n, 'źródło', 'źródła', 'źródeł')}"
 
 
 # ---------------------------------------------------------------- markdown (podzbiór)
@@ -193,7 +203,118 @@ def plain_text(md: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-# ---------------------------------------------------------------- wpisy
+# ---------------------------------------------------------------- okładki rysowane kodem
+
+def _rng(seed: str) -> random.Random:
+    return random.Random(int(hashlib.md5(seed.encode("utf-8")).hexdigest()[:8], 16))
+
+
+def _f(x: float) -> str:
+    return f"{x:.1f}".rstrip("0").rstrip(".")
+
+
+def cover_shapes(kind: str, seed: str):
+    """Motyw liniowy kategorii w układzie 640x400 i kadr dla miniatury. Szczegóły zależą od wpisu (seed)."""
+    r = _rng(seed)
+    out = []
+    thumb = (180, 60, 280, 280)
+    if kind == "orbit":
+        cx, cy = 320 + r.randint(-50, 50), 200 + r.randint(-20, 20)
+        radii = [26, 48, 72, 98, 126, 156, 190, 228, 270, 316]
+        out += [f'<circle cx="{cx}" cy="{cy}" r="{rr}"/>' for rr in radii]
+        for i, rr in enumerate(r.sample(radii[2:8], 4)):
+            a = r.uniform(0, 2 * math.pi)
+            x, y = cx + rr * math.cos(a), cy + rr * math.sin(a)
+            cls = "fill" if i == 0 else "ring"
+            out.append(f'<circle class="{cls}" cx="{_f(x)}" cy="{_f(y)}" r="{9 if i == 0 else 8}"/>')
+        thumb = (cx - 165, cy - 165, 330, 330)
+    elif kind == "wheel":
+        cx, cy, big = 320 + r.randint(-40, 40), 352, 190
+        y0 = 76
+        out.append(f'<path d="M0 {y0}H640"/>')
+        bx = r.randint(150, 420)
+        out.append(f'<path class="bold" d="M{bx} {y0}H{bx + 96}"/>')
+        for rr in (big, big - 26):
+            out.append(f'<path d="M{cx - rr} {cy}A{rr} {rr} 0 0 1 {cx + rr} {cy}"/>')
+        hub = 36
+        out.append(f'<path class="bold" d="M{cx - hub} {cy}A{hub} {hub} 0 0 1 {cx + hub} {cy}"/>')
+        n = r.choice([14, 16, 18])
+        for i in range(1, n):
+            a = math.pi + math.pi * i / n
+            x1, y1 = cx + hub * math.cos(a), cy + hub * math.sin(a)
+            x2, y2 = cx + (big - 26) * math.cos(a), cy + (big - 26) * math.sin(a)
+            out.append(f'<path d="M{_f(x1)} {_f(y1)}L{_f(x2)} {_f(y2)}"/>')
+        out.append(f'<path d="M0 {cy}H640"/>')
+        thumb = (cx - 200, cy - 230, 400, 260)
+    elif kind == "layers":
+        neck = r.uniform(0.42, 0.62)
+        wide, narrow = r.randint(130, 170), r.randint(30, 55)
+        ys = list(range(70, 320, 9))
+        bold_i = min(range(len(ys)), key=lambda k: abs((ys[k] - 70) / 250 - neck))
+        for k, y in enumerate(ys):
+            t = (y - 70) / 250
+            w = narrow + (wide - narrow) * min(1.0, abs(t - neck) / max(neck, 1 - neck)) ** 0.9
+            cls = ' class="bold"' if k == bold_i else ""
+            out.append(f'<path{cls} d="M{_f(320 - w)} {y}H{_f(320 + w)}"/>')
+        out.append('<path d="M120 342H520"/>')
+        thumb = (130, 50, 380, 310)
+    elif kind == "grid":
+        cols, rows, size, gap = 8, 3, 46, 14
+        x0 = (640 - (cols * size + (cols - 1) * gap)) / 2
+        y0 = (400 - (rows * size + (rows - 1) * gap)) / 2
+        pick = (r.randrange(rows), r.randrange(cols))
+        for row in range(rows):
+            for col in range(cols):
+                x, y = x0 + col * (size + gap), y0 + row * (size + gap)
+                cls = ' class="fill"' if (row, col) == pick else ""
+                out.append(f'<rect{cls} x="{_f(x)}" y="{_f(y)}" width="{size}" height="{size}" rx="10"/>')
+        fx, fy = x0 + pick[1] * (size + gap) + size / 2, y0 + pick[0] * (size + gap) + size / 2
+        thumb = (fx - 110, fy - 110, 220, 220)
+    elif kind == "bounce":
+        base = 330
+        out.append(f'<path d="M40 {base}H600"/>')
+        x = 70
+        apex = None
+        hops = [(200, 190), (140, 150), (90, 115), (52, 85)]
+        pick = r.randrange(len(hops))
+        for i, (h, w) in enumerate(hops):
+            out.append(f'<path class="dash" d="M{x} {base}Q{x + w / 2} {base - 2 * h} {x + w} {base}"/>')
+            if i == pick:
+                apex = (x + w / 2, base - h)
+            x += w
+        out.append(f'<circle class="fill" cx="{_f(apex[0])}" cy="{_f(apex[1] - 13)}" r="13"/>')
+        out.append(f'<path class="bold" d="M{_f(apex[0] - 30)} {base}H{_f(apex[0] + 30)}"/>')
+        thumb = (apex[0] - 150, base - 250, 300, 280)
+    elif kind == "globe":
+        cx, cy, R = 320, 200, 150
+        out.append(f'<circle cx="{cx}" cy="{cy}" r="{R}"/>')
+        for k in (0.25, 0.55, 0.82):
+            out.append(f'<ellipse cx="{cx}" cy="{cy}" rx="{_f(R * k)}" ry="{R}"/>')
+        out.append(f'<path d="M{cx} {cy - R}V{cy + R}"/>')
+        for lat in (-50, -22, 0, 22, 50):
+            y = cy + R * math.sin(math.radians(lat))
+            half = R * math.cos(math.radians(lat))
+            out.append(f'<path d="M{_f(cx - half)} {_f(y)}H{_f(cx + half)}"/>')
+        a1, a2 = r.uniform(200, 240), r.uniform(300, 340)
+        p1 = (cx + R * 0.7 * math.cos(math.radians(a1)), cy - R * 0.7 * math.sin(math.radians(a1)) + 60)
+        p2 = (cx + R * 0.75 * math.cos(math.radians(a2)), cy - R * 0.75 * math.sin(math.radians(a2)) - 70)
+        mid = ((p1[0] + p2[0]) / 2 + 40, min(p1[1], p2[1]) - 90)
+        out.append(f'<path class="dash bold" d="M{_f(p1[0])} {_f(p1[1])}Q{_f(mid[0])} {_f(mid[1])} {_f(p2[0])} {_f(p2[1])}"/>')
+        out.append(f'<circle class="ring" cx="{_f(p1[0])}" cy="{_f(p1[1])}" r="8"/>')
+        out.append(f'<circle class="fill" cx="{_f(p2[0])}" cy="{_f(p2[1])}" r="9"/>')
+        thumb = (cx - 170, cy - 170, 340, 340)
+    return "".join(out), thumb
+
+
+def cover(kind: str, seed: str, size: str = "lg") -> str:
+    shapes, thumb = cover_shapes(kind, seed)
+    box = "0 0 640 400" if size != "sm" else " ".join(_f(v) for v in thumb)
+    fit = "slice" if size != "sm" else "meet"
+    return (f'<div class="cover cover--{size}" aria-hidden="true"><svg viewBox="{box}" '
+            f'preserveAspectRatio="xMidYMid {fit}" focusable="false">{shapes}</svg></div>')
+
+
+# ---------------------------------------------------------------- pliki z treścią
 
 _FRONT = re.compile(r"\A---\n(.*?)\n---[ \t]*(?:\n(.*))?\Z", re.S)
 
@@ -206,7 +327,7 @@ def _unquote(value: str) -> str:
 
 
 def read_document(path: Path):
-    text = path.read_text(encoding="utf-8").lstrip("﻿").replace("\r\n", "\n")
+    text = path.read_text(encoding="utf-8").lstrip(chr(0xFEFF)).replace("\r\n", "\n")
     m = _FRONT.match(text)
     if not m:
         raise BuildError(f"{path.name}: plik musi zaczynać się od nagłówka między liniami ---")
@@ -229,7 +350,7 @@ def read_document(path: Path):
     return meta, (m.group(2) or "").strip("\n")
 
 
-def _parse_date(value: str, name: str) -> dt.datetime:
+def _parse_datetime(value: str, name: str) -> dt.datetime:
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
         try:
             return dt.datetime.strptime(value.strip(), fmt)
@@ -239,18 +360,18 @@ def _parse_date(value: str, name: str) -> dt.datetime:
 
 
 def _parse_source(raw: str, name: str) -> dict:
-    if "|" in raw:
-        label, url = (part.strip() for part in raw.rsplit("|", 1))
-    else:
-        url = raw.strip()
-        label = ""
-    if not re.match(r"^https?://\S+$", url):
-        raise BuildError(f"{name}: źródło {raw!r} musi kończyć się adresem http(s)://")
+    parts = [p.strip() for p in raw.split(" | ")]
+    url_i = next((i for i, p in enumerate(parts) if re.match(r"^https?://\S+$", p)), None)
+    if url_i is None:
+        raise BuildError(f"{name}: źródło {raw!r} musi zawierać adres http(s)://")
+    url = parts[url_i]
+    label = " | ".join(parts[:url_i]).strip()
+    role = " | ".join(parts[url_i + 1:]).strip()
     host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
-    return {"name": label or host, "url": url, "host": host}
+    return {"name": label or host, "url": url, "host": host, "role": role}
 
 
-def _text_field(meta: dict, key: str, name: str, required: bool = False) -> str:
+def _text(meta: dict, key: str, name: str, required: bool = False) -> str:
     value = meta.get(key, "")
     if isinstance(value, list):
         raise BuildError(f"{name}: pole '{key}' powinno być jedną linijką tekstu")
@@ -259,7 +380,39 @@ def _text_field(meta: dict, key: str, name: str, required: bool = False) -> str:
     return value.strip()
 
 
-def load_posts(folder: Path) -> list:
+def _list(meta: dict, key: str) -> list:
+    value = meta.get(key, [])
+    return [value] if isinstance(value, str) else value
+
+
+def load_topics() -> dict:
+    data = json.loads((CONTENT / "topics.json").read_text(encoding="utf-8"))
+    seen = set()
+    for c in data["categories"]:
+        for key in ("slug", "name", "cover"):
+            if not c.get(key):
+                raise BuildError(f"topics.json: kategoria bez pola '{key}'")
+        if not re.fullmatch(r"[a-z0-9-]+", c["slug"]) or c["slug"] in seen:
+            raise BuildError(f"topics.json: niepoprawny lub powtórzony slug {c['slug']!r}")
+        if c["cover"] not in COVERS:
+            raise BuildError(f"topics.json: okładka {c['cover']!r} musi być jedną z: {', '.join(COVERS)}")
+        if c.get("threshold", "all") not in THRESHOLDS:
+            raise BuildError(f"topics.json: próg {c.get('threshold')!r} musi być jednym z: {', '.join(THRESHOLDS)}")
+        seen.add(c["slug"])
+    return data
+
+
+def load_status() -> dict:
+    path = CONTENT / "status.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("checked_at"):
+        data["checked_at"] = _parse_datetime(data["checked_at"], "status.json")
+    return data
+
+
+def load_posts(folder: Path, categories: dict) -> list:
     posts = []
     for path in sorted(folder.glob("*.md")):
         name = path.name
@@ -268,42 +421,41 @@ def load_posts(folder: Path) -> list:
             continue
         if not re.fullmatch(r"[a-z0-9-]+", path.stem):
             raise BuildError(f"{name}: nazwa pliku może zawierać tylko małe litery, cyfry i myślniki")
-        title = _text_field(meta, "title", name, True)
-        topic = _text_field(meta, "topic", name, True)
-        fmt = _text_field(meta, "format", name, True)
-        if fmt not in FORMATS:
-            raise BuildError(f"{name}: format musi być jednym z: {', '.join(FORMATS)}")
-        conf = _text_field(meta, "confidence", name) or None
+        category = _text(meta, "category", name, True)
+        if category not in categories:
+            raise BuildError(f"{name}: kategoria {category!r} nie istnieje w topics.json "
+                             f"(dostępne: {', '.join(categories)})")
+        conf = _text(meta, "confidence", name) or None
         if conf and conf not in CONFIDENCE:
             raise BuildError(f"{name}: confidence musi być jednym z: {', '.join(CONFIDENCE)}")
-        raw_sources = meta.get("sources", [])
-        if isinstance(raw_sources, str):
-            raw_sources = [raw_sources]
-        sources = [_parse_source(s, name) for s in raw_sources]
-        if conf and not sources:
-            raise BuildError(f"{name}: wpis z oceną pewności musi mieć co najmniej jedno źródło")
+        sources = [_parse_source(s, name) for s in _list(meta, "sources")]
+        if not sources:
+            raise BuildError(f"{name}: wpis musi mieć co najmniej jedno źródło")
+        summary = _list(meta, "summary")
+        if not summary:
+            raise BuildError(f"{name}: brak punktów 'summary' (W skrócie)")
+        relevance = _text(meta, "relevance", name)
+        if relevance and not (relevance.isdigit() and 0 <= int(relevance) <= 100):
+            raise BuildError(f"{name}: relevance musi być liczbą 0-100")
         if not body.strip():
             raise BuildError(f"{name}: wpis nie ma treści")
-        post = {
+        words = len(re.findall(r"\w+", body + " " + " ".join(summary)))
+        unconfirmed = conf in ("single-source", "unconfirmed") or len(sources) == 1
+        posts.append({
             "slug": path.stem,
-            "title": title,
-            "date": _parse_date(_text_field(meta, "date", name, True), name),
-            "topic": topic,
-            "topic_slug": slugify(topic),
-            "format": fmt,
-            "confidence": conf,
-            "lead": _text_field(meta, "lead", name),
+            "title": _text(meta, "title", name, True),
+            "date": _parse_datetime(_text(meta, "date", name, True), name),
+            "category": categories[category],
+            "lead": _text(meta, "lead", name, True),
+            "summary": summary,
+            "relevance": int(relevance) if relevance else None,
+            "why": _text(meta, "why", name),
+            "unconfirmed": unconfirmed,
             "sources": sources,
-            "plain": plain_text(body),
-            "words": len(re.findall(r"\w+", body)),
-        }
-        if fmt == "thread":
-            parts = [p.strip() for p in re.split(r"(?m)^\s*---\s*$", body) if p.strip()]
-            post["parts"] = [markdown(p) for p in parts]
-        else:
-            post["html"] = markdown(body)
-        posts.append(post)
-    posts.sort(key=lambda p: (p["date"], p["slug"]), reverse=True)
+            "html": markdown(body),
+            "minutes": max(1, round(words / 200)),
+        })
+    posts.sort(key=lambda p: (p["date"], p["relevance"] or 0, p["slug"]), reverse=True)
     return posts
 
 
@@ -314,16 +466,14 @@ class Site:
         self.c = config
         self.base = base.rstrip("/")
         self.site_url = site_url.rstrip("/")
-        self.posts = load_posts(posts_dir)
-        counts, names = {}, {}
-        for p in self.posts:
-            counts[p["topic_slug"]] = counts.get(p["topic_slug"], 0) + 1
-            names.setdefault(p["topic_slug"], p["topic"])
-        self.topics = sorted(((s, names[s], n) for s, n in counts.items()), key=lambda t: (-t[2], t[1]))
-        days = sorted({p["date"].date() for p in self.posts})
-        self.edition = {d: i + 1 for i, d in enumerate(days)}
-        self.css_version = hashlib.sha1((STATIC / "style.css").read_bytes()).hexdigest()[:8]
-        self.pages = []  # ścieżki do sitemap.xml
+        self.topics = load_topics()
+        self.cats = {c["slug"]: c for c in self.topics["categories"]}
+        self.status = load_status()
+        self.posts = load_posts(posts_dir, self.cats)
+        self.asset_v = hashlib.sha1(b"".join(p.read_bytes() for p in sorted(STATIC.glob("*.*")))).hexdigest()[:8]
+        self.pages = []
+
+    # ---------- adresy
 
     def u(self, path: str) -> str:
         return self.base + path
@@ -334,68 +484,68 @@ class Site:
     def post_url(self, p: dict) -> str:
         return self.u(f"/p/{p['slug']}/")
 
-    def topic_url(self, slug: str) -> str:
-        return self.u(f"/tematy/{slug}/")
+    def cat_url(self, slug: str) -> str:
+        return self.u(f"/kategoria/{slug}/")
 
     # ---------- szkielet
 
-    def layout(self, *, title: str, body: str, path: str, description: str = "",
-               home: bool = False, kind: str = "website", current: str = "") -> str:
+    def layout(self, *, title: str, body: str, path: str, description: str = "", current: str = "",
+               kind: str = "website", home: bool = False) -> str:
         c = self.c
         full_title = title if home else f"{title} · {c['title']}"
         desc = description or c["description"]
-        nav = [f'<a href="{self.u("/")}"{" aria-current=page" if current == "home" else ""}>Wszystko</a>']
-        for slug, name, _ in self.topics:
-            mark = " aria-current=page" if current == slug else ""
-            nav.append(f'<a href="{self.topic_url(slug)}"{mark}>{esc(name)}</a>')
-        about = " aria-current=page" if current == "about" else ""
-        nav.append(f'<a class="topnav-about" href="{self.u("/o-magazynie/")}"{about}>O magazynie</a>')
 
-        if home and self.posts:
-            latest = self.posts[0]["date"].date()
-            dateline = (f'<p class="dateline"><span>{weekday(latest).capitalize()}, {date_long(latest)}</span>'
-                        f'<span>Wydanie nr {self.edition[latest]}</span></p>')
-        else:
-            dateline = ""
-        masthead_class = "masthead--home" if home else "masthead--inner"
+        def nav_link(href: str, label: str, key: str) -> str:
+            mark = ' aria-current="page"' if current == key else ""
+            return f'<a href="{href}"{mark}>{esc(label)}</a>'
+
+        links = [nav_link(self.u("/"), "Dziś", "home")]
+        links += [nav_link(self.cat_url(cat["slug"]), cat["name"], cat["slug"])
+                  for cat in self.topics["categories"] if cat.get("active", True)]
+        topics_mark = ' aria-current="page"' if current == "topics" else ""
         self.pages.append(path)
         return f"""<!doctype html>
-<html lang="{esc(c.get('language', 'pl'))}">
+<html lang="pl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{esc(full_title)}</title>
 <meta name="description" content="{esc(desc)}">
 <link rel="canonical" href="{esc(self.absolute(path))}">
 <link rel="icon" href="{self.u('/favicon.svg')}" type="image/svg+xml">
 <link rel="alternate" type="application/rss+xml" title="{esc(c['title'])}" href="{self.u('/feed.xml')}">
-<link rel="stylesheet" href="{self.u('/style.css')}?v={self.css_version}">
-<meta name="theme-color" content="#f8f5ef" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141311" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="{FONT_CSS}">
+<link rel="stylesheet" href="{self.u('/style.css')}?v={self.asset_v}">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111215" media="(prefers-color-scheme: dark)">
 <meta property="og:site_name" content="{esc(c['title'])}">
 <meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(desc)}">
 <meta property="og:type" content="{kind}">
 <meta property="og:url" content="{esc(self.absolute(path))}">
 <meta property="og:locale" content="pl_PL">
+<script defer src="{self.u('/app.js')}?v={self.asset_v}"></script>
 </head>
 <body>
 <a class="skip" href="#tresc">Przejdź do treści</a>
-<header class="masthead {masthead_class}">
-  <div class="wrap masthead-inner">
-    <a class="brand" href="{self.u('/')}" aria-label="{esc(c['title'])}, strona główna">{LOGO}<span class="brand-name">{esc(c['title'])}</span></a>
-    <p class="tagline">{esc(c['tagline'])}</p>
-    {dateline}
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="{self.u('/')}" aria-label="{esc(c['title'])}, strona główna">{LOGO}<span>{esc(c['title'])}</span></a>
+    <nav class="nav-links" aria-label="Kategorie">{''.join(links)}</nav>
+    <div class="nav-tools">
+      <a class="icon-btn" href="{self.u('/szukaj/')}" aria-label="Szukaj" data-search-link{' aria-current="page"' if current == 'search' else ''}>{SEARCH_ICON}</a>
+      <a class="pill" href="{self.u('/tematy/')}"{topics_mark}>Twoje tematy</a>
+    </div>
   </div>
 </header>
-<nav class="topnav" aria-label="Działy"><div class="wrap topnav-inner">{''.join(nav)}</div></nav>
 <main id="tresc">
 {body}
 </main>
-<footer class="site-footer">
-  <div class="wrap">
-    <p><strong>{esc(c['title'])}</strong> to magazyn redagowany przez AI (Claude). Teksty mogą zawierać błędy, dlatego przy każdym wpisie są źródła i ocena pewności. W razie rozbieżności rację ma źródło.</p>
-    <p><a href="{self.u('/o-magazynie/')}">Jak to działa</a> · <a href="{self.u('/archiwum/')}">Archiwum</a> · <a href="{self.u('/feed.xml')}">RSS</a></p>
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <p><strong>{esc(c['title'])}</strong> · {esc(c['tagline'])}. Wpisy pisze AI (Claude) wyłącznie na podstawie podanych źródeł. W razie rozbieżności rację ma źródło.</p>
+    <p class="footer-links"><a href="{self.u('/o-swan/')}">Jak to działa</a><a href="{self.u('/archiwum/')}">Archiwum</a><a href="{self.u('/feed.xml')}">RSS</a></p>
   </div>
 </footer>
 </body>
@@ -404,221 +554,253 @@ class Site:
 
     # ---------- klocki
 
-    def badge(self, conf) -> str:
-        if not conf:
+    def kicker(self, p: dict, link: bool = False) -> str:
+        name = esc(p["category"]["name"])
+        label = f'<a href="{self.cat_url(p["category"]["slug"])}">{name}</a>' if link else name
+        return f'<p class="kicker"><span class="dot" aria-hidden="true"></span>{label}</p>'
+
+    def meta(self, p: dict, short: bool = False) -> str:
+        if short:
+            bits = [sources_short(len(p["sources"])), f"{p['minutes']} min"]
+        else:
+            bits = [sources_phrase(len(p["sources"])), f"{p['minutes']} min czytania"]
+        flag = '<span class="flag">Niepotwierdzone</span>' if p["unconfirmed"] else ""
+        return f'<p class="meta">{esc(", ".join(bits))}{flag}</p>'
+
+    def lead_story(self, p: dict) -> str:
+        kind = p["category"]["cover"]
+        return (f'<article class="lead-story item" data-slug="{p["slug"]}">'
+                f'{cover(kind, p["slug"], "lg")}'
+                f'<div class="lead-body">{self.kicker(p)}'
+                f'<h2 class="lead-title"><a class="stretch" href="{self.post_url(p)}">{esc(p["title"])}</a></h2>'
+                f'<p class="lead-text">{esc(p["lead"])}</p>{self.meta(p)}</div></article>')
+
+    def card(self, p: dict) -> str:
+        return (f'<article class="card item" data-slug="{p["slug"]}">'
+                f'{cover(p["category"]["cover"], p["slug"], "md")}{self.kicker(p)}'
+                f'<h3 class="card-title"><a class="stretch" href="{self.post_url(p)}">{esc(p["title"])}</a></h3>'
+                f'<p class="card-text">{esc(truncate(p["lead"], 150))}</p>{self.meta(p, short=True)}</article>')
+
+    def row(self, p: dict, with_date: bool = False) -> str:
+        meta = self.meta(p, short=True)
+        if with_date:
+            meta = meta.replace('<p class="meta">', f'<p class="meta">{date_short(p["date"])} · ', 1)
+        return (f'<article class="row item" data-slug="{p["slug"]}"><div class="row-body">'
+                f'<h3 class="row-title"><span class="dot" aria-hidden="true"></span>'
+                f'<a class="stretch" href="{self.post_url(p)}">{esc(p["title"])}</a></h3>{meta}</div>'
+                f'{cover(p["category"]["cover"], p["slug"], "sm")}</article>')
+
+    def next_check(self) -> str:
+        checked = self.status.get("checked_at")
+        slots = sorted(self.topics.get("schedule", []))
+        if not checked or not slots:
             return ""
-        label, note = CONFIDENCE[conf]
-        return f'<span class="badge badge--{conf}" title="{esc(note)}">{label}</span>'
+        for slot in slots:
+            h, m = map(int, slot.split(":"))
+            candidate = checked.replace(hour=h, minute=m)
+            if candidate > checked:
+                return f"Następne sprawdzenie {slot}"
+        h, m = map(int, slots[0].split(":"))
+        nxt = checked + dt.timedelta(days=1)
+        return f"Następne sprawdzenie: {WEEKDAYS_SHORT[nxt.weekday()]} {date_short(nxt)}, {slots[0]}"
 
-    def format_label(self, p: dict) -> str:
-        if p["format"] == "article":
-            return f"Artykuł · {max(1, round(p['words'] / 200))} min"
-        if p["format"] == "thread":
-            n = len(p["parts"])
-            return f"Wątek · {n} {plural(n, 'część', 'części', 'części')}"
-        return "Krótko"
-
-    def kicker(self, p: dict) -> str:
-        return (f'<div class="kicker"><a class="topic" href="{self.topic_url(p["topic_slug"])}">{esc(p["topic"])}</a>'
-                f'<span class="fmt">{self.format_label(p)}</span></div>')
-
-    def meta_line(self, p: dict, show_date: bool = True) -> str:
-        bits = []
-        if show_date:
-            bits.append(f'<time datetime="{p["date"].date().isoformat()}">{date_long(p["date"])}</time>')
-        if p["confidence"]:
-            bits.append(self.badge(p["confidence"]))
-        n = len(p["sources"])
-        if n:
-            bits.append(f"<span>{n} {plural(n, 'źródło', 'źródła', 'źródeł')}</span>")
-        if not bits:
+    def status_block(self) -> str:
+        checked = self.status.get("checked_at")
+        if not checked:
             return ""
-        return '<div class="meta">' + '<span class="sep" aria-hidden="true">·</span>'.join(bits) + "</div>"
-
-    def summary(self, p: dict, limit: int = 220) -> str:
-        return p["lead"] or truncate(p["plain"], limit)
-
-    def card(self, p: dict, size: str = "md", show_date: bool = True, heading: str = "h3") -> str:
-        return (f'<article class="card card--{size} card--{p["format"]}">{self.kicker(p)}'
-                f'<{heading} class="card-title"><a href="{self.post_url(p)}">{esc(p["title"])}</a></{heading}>'
-                f'<p class="card-lead">{esc(self.summary(p))}</p>{self.meta_line(p, show_date)}</article>')
-
-    def short_card(self, p: dict, heading: str = "h3") -> str:
-        foot = [self.badge(p["confidence"])] if p["confidence"] else []
-        if p["sources"]:
-            s = p["sources"][0]
-            more = len(p["sources"]) - 1
-            extra = f' <span class="more">+{more}</span>' if more else ""
-            foot.append(f'<span class="src">Źródło: <a href="{esc(s["url"])}" rel="noopener" target="_blank">'
-                        f'{esc(s["name"])}</a>{extra}</span>')
-        foot_html = f'<div class="short-foot">{"".join(foot)}</div>' if foot else ""
-        return (f'<article class="short"><div class="short-head">'
-                f'<a class="topic" href="{self.topic_url(p["topic_slug"])}">{esc(p["topic"])}</a>'
-                f'<a class="short-time" href="{self.post_url(p)}" title="Link do wpisu">'
-                f'<time datetime="{p["date"].isoformat()}">{date_short(p["date"])}</time></a></div>'
-                f'<{heading} class="short-title"><a href="{self.post_url(p)}">{esc(p["title"])}</a></{heading}>'
-                f'<div class="short-body">{p["html"]}</div>{foot_html}</article>')
-
-    def any_card(self, p: dict) -> str:
-        return self.short_card(p) if p["format"] == "short" else self.card(p)
+        other = f"Sprawdzono {date_day(checked)} o {hhmm(checked)}"
+        nxt = self.next_check()
+        return (f'<div class="status"><p><span class="dot" aria-hidden="true"></span>'
+                f'<span data-today data-other="{esc(other)}">Sprawdzono o {hhmm(checked)}</span></p>'
+                f'{f"<p>{esc(nxt)}</p>" if nxt else ""}</div>')
 
     # ---------- strony
 
     def render_home(self) -> str:
-        longs = [p for p in self.posts if p["format"] != "short"]
-        shorts = [p for p in self.posts if p["format"] == "short"][:HOME_SHORTS]
-        groups = []
-        for p in longs:
-            day = p["date"].date()
-            if groups and groups[-1][0] == day:
-                groups[-1][1].append(p)
-            else:
-                groups.append((day, [p]))
+        if not self.posts:
+            body = ('<section class="wrap hero"><h1 class="hero-title">Pierwsze wydanie jest w drodze.</h1>'
+                    '<p class="hero-text">Wróć po najbliższym sprawdzeniu źródeł.</p></section>')
+            return self.layout(title=self.c["title"], body=body, path="/", current="home", home=True)
 
-        main = []
-        if groups:
-            day, items = groups[0]
-            # czołówka: najnowszy artykuł z wydania, a jeśli go nie ma, najnowszy wpis
-            top = next((p for p in items if p["format"] == "article"), items[0])
-            items = [top] + [p for p in items if p is not top]
-            main.append(f'<section class="edition" aria-labelledby="wydanie"><h2 class="section-title" id="wydanie">'
-                        f'Najnowsze · {date_long(day)}</h2>')
-            main.append(self.card(items[0], "lg", show_date=False))
-            if items[1:]:
-                main.append('<div class="card-grid">' +
-                            "".join(self.card(p, "md", show_date=False) for p in items[1:]) + "</div>")
-            main.append("</section>")
-            older = groups[1:HOME_EDITIONS]
-            if older:
-                main.append('<section class="older" aria-labelledby="wczesniej">'
-                            '<h2 class="section-title" id="wczesniej">Wcześniejsze wydania</h2>')
-                for day, items in older:
-                    rows = "".join(
-                        f'<li><span class="fmt-chip">{FORMATS[p["format"]]}</span>'
-                        f'<a href="{self.post_url(p)}">{esc(p["title"])}</a>'
-                        f'<span class="older-topic">{esc(p["topic"])}</span></li>' for p in items)
-                    main.append(f'<div class="older-day"><h3 class="older-date">{weekday(day).capitalize()}, '
-                                f'{date_long(day)}</h3><ul class="older-list">{rows}</ul></div>')
-                main.append(f'<p class="more-link"><a href="{self.u("/archiwum/")}">Całe archiwum →</a></p>'
-                            "</section>")
-        else:
-            main.append('<p class="empty">Pierwsze wydanie jest w drodze.</p>')
+        day = self.posts[0]["date"].date()
+        edition = sorted([p for p in self.posts if p["date"].date() == day],
+                         key=lambda p: (-(p["relevance"] or 0), p["date"]))
+        n = len(edition)
+        minutes = sum(p["minutes"] for p in edition)
+        things = f"{n} {plural(n, 'rzecz warta', 'rzeczy warte', 'rzeczy wartych')} Twojej uwagi."
+        pubs, outlets = self.status.get("publications"), self.status.get("outlets")
+        scanned = ""
+        if pubs and outlets:
+            scanned = (f"SWAN przejrzał {pubs} {plural(pubs, 'publikację', 'publikacje', 'publikacji')} "
+                       f"z {outlets} {plural(outlets, 'źródła', 'źródeł', 'źródeł')} i zostawił to, "
+                       f"co pasuje do Twoich tematów. ")
+        read_time = f"Całość przeczytasz w {minutes} {plural(minutes, 'minutę', 'minuty', 'minut')}."
 
-        side = "".join(self.short_card(p) for p in shorts) or '<p class="empty">Tu pojawią się krótkie wpisy.</p>'
-        body = (f'<h1 class="sr-only">{esc(self.c["title"])}: {esc(self.c["tagline"])}</h1>'
-                f'<div class="wrap home"><div class="home-main">{"".join(main)}</div>'
-                f'<aside class="home-side" aria-labelledby="krotko"><h2 class="section-title" id="krotko">Krótko</h2>'
-                f'{side}</aside></div>')
-        return self.layout(title=f"{self.c['title']}: {self.c['tagline']}", body=body, path="/",
-                           home=True, current="home")
+        top, important, rest = edition[0], edition[1:4], edition[4:]
+        parts = [f'<section class="wrap hero" data-edition="{day.isoformat()}">'
+                 f'<p class="dateline">{weekday(day).capitalize()}, {date_day(day)}</p>'
+                 f'<div class="hero-grid"><div><h1 class="hero-title">'
+                 f'<span data-today data-other="">Dziś </span>{things}</h1>'
+                 f'<p class="hero-text">{esc(scanned + read_time)}</p></div>{self.status_block()}</div>'
+                 f'{self.lead_story(top)}</section>']
+        if important:
+            parts.append(f'<section class="wrap block" aria-labelledby="najwazniejsze"><div class="block-head">'
+                         f'<h2 id="najwazniejsze">Najważniejsze</h2>'
+                         f'<p class="counter" data-counter>{n} {plural(n, "wpis", "wpisy", "wpisów")}</p></div>'
+                         f'<div class="cards">{"".join(self.card(p) for p in important)}</div></section>')
+        if rest:
+            groups = []
+            for cat in self.topics["categories"]:
+                items = [p for p in rest if p["category"]["slug"] == cat["slug"]]
+                if items:
+                    groups.append(f'<section class="group"><h2><a href="{self.cat_url(cat["slug"])}">'
+                                  f'{esc(cat["name"])}</a></h2>{"".join(self.row(p) for p in items)}</section>')
+            parts.append(f'<div class="wrap block groups">{"".join(groups)}</div>')
+        nxt = self.next_check()
+        parts.append(f'<section class="wrap end"><p class="end-title" data-today '
+                     f'data-other="To wszystko w tym wydaniu.">To wszystko na dziś.</p>'
+                     f'<p class="end-text">{esc(nxt + ". " if nxt else "")}Starsze wpisy znajdziesz w '
+                     f'<a href="{self.u("/archiwum/")}">archiwum</a>.</p></section>')
+        title = f"{self.c['title']}: {self.c['tagline']}"
+        return self.layout(title=title, body="".join(parts), path="/", current="home", home=True,
+                           description=f"{n} {plural(n, 'rzecz', 'rzeczy', 'rzeczy')} z {date_long(day)}. "
+                                       + self.c["description"])
 
     def render_post(self, p: dict) -> str:
-        if p["format"] == "thread":
-            n = len(p["parts"])
-            parts = "".join(f'<li class="thread-part"><span class="thread-n" aria-label="Część {i} z {n}">{i}/{n}</span>'
-                            f'<div class="prose">{part}</div></li>' for i, part in enumerate(p["parts"], 1))
-            content = f'<ol class="thread">{parts}</ol>'
-        else:
-            content = f'<div class="prose">{p["html"]}</div>'
-
-        sources = ""
-        if p["sources"]:
-            items = "".join(f'<li><a href="{esc(s["url"])}" rel="noopener" target="_blank">{esc(s["name"])}</a>'
-                            f' <span class="host">{esc(s["host"])}</span></li>' for s in p["sources"])
-            conf = ""
-            if p["confidence"]:
-                conf = f'<p class="conf-note">{self.badge(p["confidence"])}<span>{esc(CONFIDENCE[p["confidence"]][1])}</span></p>'
-            sources = f'<aside class="sources" aria-labelledby="zrodla"><h2 id="zrodla">Źródła</h2><ol>{items}</ol>{conf}</aside>'
-
-        related = [q for q in self.posts if q["topic_slug"] == p["topic_slug"] and q["slug"] != p["slug"]][:4]
+        cat = p["category"]
+        summary = "".join(f"<li>{inline(s)}</li>" for s in p["summary"])
+        sources = "".join(
+            f'<li><a href="{esc(s["url"])}" rel="noopener" target="_blank">{esc(s["name"])}</a>'
+            f'<span class="role">{esc(s["role"] or s["host"])}</span></li>' for s in p["sources"])
+        why = ""
+        if p["relevance"] is not None:
+            why = (f'<section class="side-block why"><h2>Dlaczego to widzisz</h2>'
+                   f'<p class="score"><strong>{p["relevance"]}</strong> na 100 trafności</p>'
+                   f'<div class="bar" role="img" aria-label="Trafność {p["relevance"]} na 100">'
+                   f'<span style="width:{p["relevance"]}%"></span></div>'
+                   f'{f"<p>{esc(p[chr(119) + chr(104) + chr(121)])}</p>" if p["why"] else ""}</section>')
+        flag = ""
+        if p["unconfirmed"]:
+            flag = ('<section class="side-block"><p class="note"><span class="flag">Niepotwierdzone</span> '
+                    'Informacja ma tylko jedno źródło albo opiera się na nieoficjalnych doniesieniach.</p></section>')
+        related = [q for q in self.posts if q["category"]["slug"] == cat["slug"] and q["slug"] != p["slug"]][:3]
         related_html = ""
         if related:
-            rows = "".join(f'<li><a href="{self.post_url(q)}">{esc(q["title"])}</a>'
-                           f'<span class="meta-inline">{FORMATS[q["format"]]} · {date_short(q["date"])}</span></li>'
-                           for q in related)
-            related_html = (f'<nav class="related" aria-labelledby="wiecej"><h2 class="section-title" id="wiecej">'
-                            f'Więcej: {esc(p["topic"])}</h2><ul>{rows}</ul></nav>')
+            related_html = (f'<section class="related"><h2>Więcej: {esc(cat["name"])}</h2>'
+                            f'{"".join(self.row(q, with_date=True) for q in related)}</section>')
+        meta = (f'{sources_phrase(len(p["sources"]))}, {p["minutes"]} min czytania, '
+                f'opublikowano {date_day(p["date"])} o {hhmm(p["date"])}')
+        body = (f'<div class="wrap article-grid"><article class="article" data-article="{p["slug"]}">'
+                f'<header class="article-head">{self.kicker(p, link=True)}<h1>{esc(p["title"])}</h1>'
+                f'<p class="meta">{esc(meta)}</p></header>'
+                f'{cover(cat["cover"], p["slug"], "lg")}'
+                f'<section class="tldr"><h2>W skrócie</h2><ul>{summary}</ul></section>'
+                f'<div class="prose">{p["html"]}</div></article>'
+                f'<aside class="article-side">{why}<section class="side-block sources"><h2>Źródła</h2>'
+                f'<ul>{sources}</ul></section>{flag}'
+                f'<p class="ai-note">Wpis przygotowało AI (Claude) na podstawie powyższych źródeł.</p></aside>'
+                f'{related_html}</div>')
+        return self.layout(title=p["title"], body=body, path=f"/p/{p['slug']}/", current=cat["slug"],
+                           description=p["lead"], kind="article")
 
-        lead = f'<p class="lead">{esc(p["lead"])}</p>' if p["lead"] else ""
-        meta = self.meta_line(p)
-        if p["format"] == "article":
-            meta = meta.replace("</div>", f'<span class="sep" aria-hidden="true">·</span>'
-                                          f'<span>{max(1, round(p["words"] / 200))} min czytania</span></div>', 1) \
-                if meta else ""
-        ai_note = ('<p class="ai-note">Tekst przygotowany przez AI (Claude) na podstawie podanych źródeł.</p>'
-                   if p["sources"] else "")
-        body = (f'<div class="wrap"><article class="post post--{p["format"]}">'
-                f'<header class="post-head"><div class="kicker"><a class="topic" href="{self.topic_url(p["topic_slug"])}">'
-                f'{esc(p["topic"])}</a><span class="fmt">{FORMATS[p["format"]]}</span></div>'
-                f'<h1>{esc(p["title"])}</h1>{lead}{meta}</header>'
-                f'{content}{sources}{ai_note}{related_html}</article></div>')
-        return self.layout(title=p["title"], body=body, path=f"/p/{p['slug']}/",
-                           description=self.summary(p, 200), kind="article")
+    def render_category(self, cat: dict) -> str:
+        items = [p for p in self.posts if p["category"]["slug"] == cat["slug"]]
+        chips = "".join(f'<li>{esc(s)}</li>' for s in cat.get("subtopics", []))
+        rows = "".join(self.row(p, with_date=True) for p in items) or \
+            '<p class="empty">W tej kategorii nie ma jeszcze wpisów.</p>'
+        body = (f'<div class="wrap page"><header class="page-head"><h1>{esc(cat["name"])}</h1>'
+                f'<p>{esc(cat.get("description", ""))}</p><ul class="chips">{chips}</ul></header>'
+                f'<div class="list">{rows}</div></div>')
+        return self.layout(title=cat["name"], body=body, path=f"/kategoria/{cat['slug']}/", current=cat["slug"],
+                           description=cat.get("description", ""))
 
-    def render_topic(self, slug: str, name: str, count: int) -> str:
-        items = [p for p in self.posts if p["topic_slug"] == slug]
-        body = (f'<div class="wrap"><header class="page-head"><h1>{esc(name)}</h1>'
-                f'<p>{count} {plural(count, "wpis", "wpisy", "wpisów")}</p></header>'
-                f'<div class="feed">{"".join(self.any_card(p) for p in items)}</div></div>')
-        return self.layout(title=name, body=body, path=f"/tematy/{slug}/", current=slug,
-                           description=f"Wszystkie wpisy z działu {name}.")
+    def render_topics(self) -> str:
+        rows = []
+        for cat in self.topics["categories"]:
+            chips = "".join(f'<li>{esc(s)}</li>' for s in cat.get("subtopics", []))
+            current = cat.get("threshold", "all")
+            seg = "".join(f'<span{" class=on" if key == current else ""}>{label}</span>'
+                          for key, label in THRESHOLDS.items())
+            active = cat.get("active", True)
+            state = "Aktywny" if active else "Uśpiony"
+            rows.append(f'<section class="topic{"" if active else " is-off"}"><div class="topic-main">'
+                        f'<h2>{esc(cat["name"])}</h2><p>{esc(cat.get("description", ""))}</p>'
+                        f'<ul class="chips">{chips}</ul></div><div class="topic-side">'
+                        f'<p class="segmented" aria-label="Próg ważności: {THRESHOLDS[current]}">{seg}</p>'
+                        f'<p class="switch{" on" if active else ""}" aria-label="{state}">'
+                        f'<span class="switch-knob"></span><span class="sr-only">{state}</span></p></div></section>')
+        sched = ", ".join(self.topics.get("schedule", []))
+        body = (f'<div class="wrap page narrow"><header class="page-head"><h1>Twoje tematy</h1>'
+                f'<p>Tematy, które śledzi SWAN, i to, jak bardzo coś musi być ważne, żeby trafiło do wydania. '
+                f'Sprawdzanie źródeł: codziennie o {esc(sched)}. Żeby coś zmienić, napisz do redakcji (Claude), '
+                f'zwykłymi słowami.</p></header>{"".join(rows)}</div>')
+        return self.layout(title="Twoje tematy", body=body, path="/tematy/", current="topics")
 
     def render_archive(self) -> str:
-        months, out = [], []
+        days, out = [], []
         for p in self.posts:
-            key = (p["date"].year, p["date"].month)
-            if not months or months[-1][0] != key:
-                months.append((key, []))
-            months[-1][1].append(p)
-        for (year, month), items in months:
-            rows = "".join(f'<li><time datetime="{p["date"].date().isoformat()}">{date_short(p["date"])}</time>'
-                           f'<span class="fmt-chip">{FORMATS[p["format"]]}</span>'
-                           f'<a href="{self.post_url(p)}">{esc(p["title"])}</a>'
-                           f'<span class="older-topic">{esc(p["topic"])}</span></li>' for p in items)
-            out.append(f'<section class="archive-month"><h2 class="section-title">{MONTHS_NOM[month - 1]} {year}</h2>'
-                       f'<ul class="older-list archive-list">{rows}</ul></section>')
+            d = p["date"].date()
+            if not days or days[-1][0] != d:
+                days.append((d, []))
+            days[-1][1].append(p)
+        for d, items in days:
+            out.append(f'<section class="archive-day"><h2>{weekday(d).capitalize()}, {date_long(d)}</h2>'
+                       f'{"".join(self.row(p) for p in items)}</section>')
         n = len(self.posts)
-        body = (f'<div class="wrap"><header class="page-head"><h1>Archiwum</h1>'
-                f'<p>{n} {plural(n, "wpis", "wpisy", "wpisów")}</p></header>'
-                f'<div class="feed">{"".join(out) or "<p class=empty>Jeszcze nic tu nie ma.</p>"}</div></div>')
+        body = (f'<div class="wrap page narrow"><header class="page-head"><h1>Archiwum</h1>'
+                f'<p>{n} {plural(n, "wpis", "wpisy", "wpisów")} ze wszystkich wydań.</p></header>'
+                f'{"".join(out) or "<p class=empty>Jeszcze nic tu nie ma.</p>"}</div>')
         return self.layout(title="Archiwum", body=body, path="/archiwum/")
 
-    def render_page(self, source: Path, path: str, current: str = "") -> str:
+    def render_search(self) -> str:
+        body = (f'<div class="wrap page narrow"><header class="page-head"><h1>Szukaj</h1></header>'
+                f'<div class="search" data-search data-index="{self.u("/search.json")}">'
+                f'<label class="sr-only" for="q">Czego szukasz?</label>'
+                f'<input id="q" type="search" placeholder="np. Temu, OrcaSlicer, elektryki" autocomplete="off" autofocus>'
+                f'<div class="list" data-results aria-live="polite"></div></div></div>')
+        return self.layout(title="Szukaj", body=body, path="/szukaj/", current="search")
+
+    def render_page(self, source: Path, path: str) -> str:
         meta, text = read_document(source)
-        title = _text_field(meta, "title", source.name, True)
-        body = (f'<div class="wrap"><article class="post post--page"><header class="post-head"><h1>{esc(title)}</h1>'
-                f'</header><div class="prose">{markdown(text)}</div></article></div>')
-        return self.layout(title=title, body=body, path=path, current=current,
-                           description=_text_field(meta, "lead", source.name))
+        title = _text(meta, "title", source.name, True)
+        body = (f'<div class="wrap page narrow"><header class="page-head"><h1>{esc(title)}</h1></header>'
+                f'<div class="prose">{markdown(text)}</div></div>')
+        return self.layout(title=title, body=body, path=path, description=_text(meta, "lead", source.name))
 
     def render_404(self) -> str:
-        body = (f'<div class="wrap"><header class="page-head page-404"><h1>Nie ma takiej strony</h1>'
-                f'<p>Może wpis zmienił adres. <a href="{self.u("/")}">Wróć na stronę główną</a> '
-                f'albo zajrzyj do <a href="{self.u("/archiwum/")}">archiwum</a>.</p></header></div>')
-        html_doc = self.layout(title="Nie ma takiej strony", body=body, path="/404.html")
+        body = (f'<div class="wrap page narrow"><header class="page-head"><h1>Nie ma takiej strony</h1>'
+                f'<p>Wróć do <a href="{self.u("/")}">dzisiejszego wydania</a> albo zajrzyj do '
+                f'<a href="{self.u("/archiwum/")}">archiwum</a>.</p></header></div>')
+        doc = self.layout(title="Nie ma takiej strony", body=body, path="/404.html")
         self.pages.remove("/404.html")
-        return html_doc
+        return doc
+
+    def render_search_index(self) -> str:
+        return json.dumps([{"t": p["title"], "l": p["lead"], "c": p["category"]["name"],
+                            "d": date_short(p["date"]), "u": self.post_url(p), "s": p["slug"],
+                            "m": f"{sources_short(len(p['sources']))}, {p['minutes']} min"}
+                           for p in self.posts], ensure_ascii=False)
 
     def render_feed(self) -> str:
         items = []
-        for p in self.posts[:40]:
+        for p in self.posts[:50]:
             link = self.absolute(f"/p/{p['slug']}/")
             items.append(
                 "<item>"
                 f"<title>{esc(p['title'])}</title>"
                 f"<link>{esc(link)}</link><guid isPermaLink=\"true\">{esc(link)}</guid>"
                 f"<pubDate>{format_datetime(_aware(p['date']))}</pubDate>"
-                f"<category>{esc(p['topic'])}</category>"
-                f"<description>{esc(self.summary(p, 400))}</description>"
+                f"<category>{esc(p['category']['name'])}</category>"
+                f"<description>{esc(p['lead'])}</description>"
                 "</item>")
-        now = format_datetime(_aware(self.posts[0]["date"])) if self.posts else ""
+        last = format_datetime(_aware(self.posts[0]["date"])) if self.posts else ""
         return ('<?xml version="1.0" encoding="utf-8"?>\n'
                 '<rss version="2.0"><channel>'
                 f"<title>{esc(self.c['title'])}</title>"
                 f"<link>{esc(self.absolute('/'))}</link>"
                 f"<description>{esc(self.c['description'])}</description>"
-                f"<language>{esc(self.c.get('language', 'pl'))}</language>"
-                f"<lastBuildDate>{now}</lastBuildDate>"
+                "<language>pl</language>"
+                f"<lastBuildDate>{last}</lastBuildDate>"
                 f"{''.join(items)}</channel></rss>\n")
 
     def render_sitemap(self) -> str:
@@ -641,12 +823,14 @@ class Site:
         write("index.html", self.render_home())
         for p in self.posts:
             write(f"p/{p['slug']}/index.html", self.render_post(p))
-        for slug, name, count in self.topics:
-            write(f"tematy/{slug}/index.html", self.render_topic(slug, name, count))
+        for cat in self.topics["categories"]:
+            write(f"kategoria/{cat['slug']}/index.html", self.render_category(cat))
+        write("tematy/index.html", self.render_topics())
         write("archiwum/index.html", self.render_archive())
-        write("o-magazynie/index.html", self.render_page(CONTENT / "pages" / "o-magazynie.md",
-                                                         "/o-magazynie/", current="about"))
+        write("szukaj/index.html", self.render_search())
+        write("o-swan/index.html", self.render_page(CONTENT / "pages" / "o-swan.md", "/o-swan/"))
         write("404.html", self.render_404())
+        write("search.json", self.render_search_index())
         write("feed.xml", self.render_feed())
         write("sitemap.xml", self.render_sitemap())
         write("robots.txt", f"User-agent: *\nAllow: /\nSitemap: {self.absolute('/sitemap.xml')}\n")
@@ -680,9 +864,8 @@ def main() -> None:
     except BuildError as error:
         print(f"BŁĄD: {error}", file=sys.stderr)
         sys.exit(1)
-    np, nt = len(site.posts), len(site.topics)
-    print(f"Gotowe: {np} {plural(np, 'wpis', 'wpisy', 'wpisów')}, "
-          f"{nt} {plural(nt, 'dział', 'działy', 'działów')} → {args.out}")
+    count = len(site.posts)
+    print(f"Gotowe: {count} {plural(count, 'wpis', 'wpisy', 'wpisów')} → {args.out}")
 
 
 if __name__ == "__main__":

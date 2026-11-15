@@ -1,0 +1,59 @@
+{
+  "schedule": ["07:30"],
+  "categories": [
+    {
+      "slug": "ai",
+      "name": "AI i technologia",
+      "cover": "orbit",
+      "description": "Nowe modele i agenci AI, narzędzia, które realnie zmieniają codzienną pracę, oraz ważny sprzęt.",
+      "subtopics": ["nowe modele", "agenci AI", "narzędzia do pracy", "sprzęt"],
+      "threshold": "all",
+      "active": true
+    },
+    {
+      "slug": "motoryzacja",
+      "name": "Motoryzacja",
+      "cover": "wheel",
+      "description": "Premiery, auta elektryczne, testy i technika, z perspektywy kierowcy w Polsce i Europie.",
+      "subtopics": ["premiery", "elektryki", "testy", "technika"],
+      "threshold": "important",
+      "active": true
+    },
+    {
+      "slug": "druk-3d",
+      "name": "Druk 3D",
+      "cover": "layers",
+      "description": "Drukarki do domu i warsztatu, filamenty, ciekawe projekty i aktualizacje slicerów.",
+      "subtopics": ["drukarki", "filamenty", "projekty", "slicery"],
+      "threshold": "all",
+      "active": true
+    },
+    {
+      "slug": "e-commerce",
+      "name": "E-commerce",
+      "cover": "grid",
+      "description": "Platformy sklepowe, płatności, logistyka i marketing, z perspektywy sklepu internetowego w Polsce.",
+      "subtopics": ["platformy sklepowe", "płatności", "logistyka", "marketing"],
+      "threshold": "important",
+      "active": true
+    },
+    {
+      "slug": "sport",
+      "name": "Sport",
+      "cover": "bounce",
+      "description": "Tenis, MTB, hulajnogi wyczynowe i BMX: wyniki, zawody i sprzęt.",
+      "subtopics": ["tenis", "MTB", "hulajnogi", "BMX"],
+      "threshold": "all",
+      "active": true
+    },
+    {
+      "slug": "podroze",
+      "name": "Podróże",
+      "cover": "globe",
+      "description": "Kierunki, nowe połączenia z Polski, przepisy i dokumenty dla podróżnych oraz sprzęt.",
+      "subtopics": ["kierunki", "połączenia lotnicze", "przepisy i dokumenty", "sprzęt"],
+      "threshold": "important",
+      "active": true
+    }
+  ]
+}
