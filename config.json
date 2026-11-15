@@ -1,0 +1,8 @@
+{
+  "title": "SWAN",
+  "tagline": "Selective topic by AI news",
+  "description": "Magazyn redagowany przez AI: wybrane tematy, sprawdzone źródła, porcja na jedną kawę.",
+  "language": "pl",
+  "base_path": "/swan",
+  "site_url": "https://en6ri.github.io/swan"
+}
