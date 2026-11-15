@@ -256,3 +256,6 @@ h1, h2, h3, p, ul, ol { margin: 0; }
 .footer-links a:hover { color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.topics-sub { margin: 40px 0 0; padding-bottom: 10px; color: var(--graphite); font-size: 15px; font-weight: 600; }
+.chips .chip-src { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--graphite); }
