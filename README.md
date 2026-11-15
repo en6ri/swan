@@ -1,48 +1,49 @@
 # SWAN
 
-*Selective topic by AI news*: magazyn redagowany przez AI (Claude). Strona statyczna na GitHub Pages, budowana prostym skryptem w Pythonie bez żadnych zależności.
+*Wiadomości, które wybiera za Ciebie AI.* Publiczna strona statyczna na GitHub Pages, budowana skryptem `build.py` (Python 3.9+, bez zależności). Wpisy pisze AI (Claude) na podstawie źródeł.
 
 ## Jak to działa
 
-- Wpisy to pliki Markdown w `content/posts/`.
-- Każdy push na gałąź `main` uruchamia workflow `.github/workflows/deploy.yml`, który buduje stronę (`build.py`) i publikuje ją na GitHub Pages.
-- Jeśli wpis ma błąd w nagłówku, budowanie się zatrzymuje, a na stronie zostaje poprzednia, działająca wersja.
+- `content/topics.json`: kategorie (nawigacja, okładki, podtematy, próg ważności, aktywność) i godziny sprawdzania źródeł.
+- `content/status.json`: stan ostatniego przeglądu źródeł (godzina, liczba publikacji i źródeł). Pokazywany w nagłówku strony głównej.
+- `content/posts/*.md`: wpisy. Strona główna pokazuje najnowsze wydanie (wpisy z ostatniego dnia), posortowane według trafności.
+- Każdy push na `main` uruchamia `.github/workflows/deploy.yml`, który buduje i publikuje stronę. Błąd w pliku zatrzymuje publikację, a na stronie zostaje poprzednia wersja.
 
 ## Format wpisu
 
-Nazwa pliku: `RRRR-MM-DD-krotki-adres.md` (tylko małe litery, cyfry i myślniki). Z nazwy powstaje adres wpisu: `/p/RRRR-MM-DD-krotki-adres/`.
+Nazwa pliku: `RRRR-MM-DD-krotki-adres.md` (małe litery, cyfry, myślniki). Adres wpisu: `/p/RRRR-MM-DD-krotki-adres/`.
 
 ```markdown
 ---
 title: Tytuł wpisu
 date: 2026-11-16 07:30
-topic: Nazwa działu
-format: article
+category: ai
+lead: Dwa zdania zajawki na stronę główną.
+relevance: 87
+why: Jedno zdanie, dlaczego wpis pasuje do tematów.
 confidence: confirmed
-lead: Jedno, dwa zdania zajawki (opcjonalnie).
+summary:
+  - Pierwszy punkt „W skrócie”.
+  - Drugi punkt.
+  - Trzeci punkt.
 sources:
-  - Nazwa źródła | https://adres-zrodla.example/artykul
-  - https://inne-zrodlo.example/strona
+  - Nazwa źródła | https://adres.example/artykul | oryginał
+  - https://inne-zrodlo.example/strona | analiza
 ---
-Treść w Markdownie.
+Tekst w Markdownie, własnymi słowami, wyłącznie na podstawie źródeł.
 ```
 
 | Pole | Wymagane | Wartości |
 |---|---|---|
-| `title` | tak | tytuł |
-| `date` | tak | `RRRR-MM-DD` albo `RRRR-MM-DD GG:MM` (czas polski) |
-| `topic` | tak | nazwa działu; nowy dział tworzy się sam |
-| `format` | tak | `short` (Krótko, 2–3 zdania), `thread` (Wątek), `article` (Artykuł) |
-| `confidence` | nie* | `confirmed`, `single-source`, `unconfirmed` |
-| `lead` | nie | zajawka na listach i w RSS |
-| `sources` | nie* | lista `Nazwa \| URL` albo samych adresów |
+| `title`, `date`, `lead` | tak | `date`: `RRRR-MM-DD GG:MM` (czas polski) |
+| `category` | tak | `slug` kategorii z `topics.json` |
+| `summary` | tak | lista punktów „W skrócie”, najlepiej trzy |
+| `sources` | tak | `Nazwa \| URL \| rola`, rola np. oryginał, analiza, dane, komentarz, test, relacja |
+| `relevance`, `why` | zalecane | trafność 0–100 i jej uzasadnienie |
+| `confidence` | nie | `confirmed`, `single-source`, `unconfirmed`; jedno źródło zawsze daje etykietę „Niepotwierdzone” |
 | `draft` | nie | `true` ukrywa wpis |
 
-\* Wpis z `confidence` musi mieć co najmniej jedno źródło. Każda wiadomość powinna mieć jedno i drugie; bez nich obywają się tylko wpisy od redakcji.
-
-**Wątek**: kolejne części oddziela się linią `---`. Numeracja (1/5, 2/5…) dodaje się sama.
-
-**Markdown**: akapity, `## nagłówki`, **pogrubienie**, *kursywa*, [linki](https://example.com), listy, cytaty `>`, `kod`.
+Okładki (`cover` w `topics.json`) rysuje kod: `orbit`, `wheel`, `layers`, `grid`, `bounce`, `globe`. Szczegóły zależą od adresu wpisu, więc każda okładka jest inna.
 
 ## Podgląd lokalny
 

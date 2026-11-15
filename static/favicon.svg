@@ -1,9 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <style>
-    .ink { fill: #1b1a17; stroke: #1b1a17; }
-    @media (prefers-color-scheme: dark) { .ink { fill: #ede8df; stroke: #ede8df; } }
+    .ink { fill: #15171c; stroke: #15171c; }
+    @media (prefers-color-scheme: dark) { .ink { fill: #f2f3f5; stroke: #f2f3f5; } }
   </style>
-  <path d="M13.5 14.5 4 19.5l10.5-.5z" fill="#d0561f"/>
-  <path class="ink" d="M15 17c3-8 15-8 15 1 0 9-14 14-14 26" fill="none" style="fill:none" stroke-width="5.5" stroke-linecap="round"/>
+  <path class="ink" d="M15 17c3-8 15-8 15 1 0 9-14 14-14 26" style="fill:none" stroke-width="6" stroke-linecap="round"/>
   <path class="ink" d="M13 42c2 9 13 13 26 11 10-1.5 17-8 20-18-6 4-12 5-18 3-9-3-19 0-28 4z" style="stroke:none"/>
 </svg>
