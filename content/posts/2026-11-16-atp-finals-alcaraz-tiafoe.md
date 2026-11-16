@@ -4,7 +4,7 @@ date: 2026-11-16 15:59
 category: tenis
 lead: W Turynie rozegrano pierwsze mecze fazy grupowej Nitto ATP Finals. Carlos Alcaraz pokonał Francisa Tiafoe 6:2, 6:2, a dzień wcześniej wygrali Alexander Zverev i Ben Shelton.
 relevance: 68
-why: Pasuje do tematu „ATP”. To pierwsze wyniki turnieju kończącego sezon, bez udziału Polaków w sprawdzonych źródłach.
+why: Pasuje do tematu „ATP”. To pierwsze wyniki turnieju kończącego sezon; w singlu nie gra żaden Polak.
 confidence: confirmed
 summary:
   - Alcaraz pokonał Tiafoe 6:2, 6:2 w 69 minut w grupie Ivana Lendla; prowadzi z nim w bezpośrednich meczach 3-1.
@@ -14,8 +14,8 @@ sources:
   - ATP Tour, Alcaraz–Tiafoe | https://www.atptour.com/en/news/alcaraz-tiafoe-nitto-atp-finals-2026-monday | relacja
   - ATP Tour, wyniki | https://www.atptour.com/en/news/nitto-atp-finals-2026-results | dane
 ---
-Alcaraz, rozstawiony z numerem drugim, objął prowadzenie 4:0 w pierwszym secie, a w drugim obronił trzy break pointy przy stanie 3:2. Do rozstrzygnięcia zostały mu jeszcze mecze grupowe z Daniilem Miedwiediewem i Flavio Cobollim. Wyniku spotkania Miedwiediew–Cobolli nie udało się sprawdzić.
+Alcaraz, rozstawiony z numerem drugim, szybko objął prowadzenie 4:0, a w drugim secie obronił trzy break pointy przy stanie 3:2. W grupie Lendla grają też Daniił Miedwiediew i Flavio Cobolli, z którymi Alcaraz i Tiafoe zmierzą się w kolejnych meczach.
 
-W niedzielnych meczach grupy McEnroe Zverev, rozstawiony z jedynką, wygrał z rozstawionym z ósemką Rafaelem Jodarem, a Shelton po trzech setach pokonał Filsa. Pełnych tabel grup nie sprawdzono.
+W niedzielnych meczach grupy McEnroe Zverev, rozstawiony z jedynką, wygrał z rozstawionym z ósemką Rafaelem Jodarem, a Shelton po trzech setach pokonał Filsa.
 
-Heliovaara i Patten, którzy według ATP zakończyli rok na pierwszym miejscu w deblu, wygrali swój mecz w tie-breaku. Źródłami są strony ATP Tour, czyli organizatora rozgrywek.
+W deblu rozstawieni z jedynką obrońcy tytułu Heliovaara i Patten wygrali z Luzem i Matosem dopiero w super tie-breaku.
